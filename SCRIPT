@@ -1,0 +1,271 @@
+--// Player Highlighter (LocalScript)
+--// Drop into: StarterPlayer > StarterPlayerScripts
+
+-- Services
+local Players = game:GetService("Players")
+local StarterGui = game:GetService("StarterGui")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- Config
+local HIGHLIGHT_NAME = "_GlobalPlayerHighlight"
+local DEFAULT_COLOR = Color3.fromRGB(0, 170, 255) -- cyan-ish
+local FILL_TRANSPARENCY = 0.5
+local OUTLINE_TRANSPARENCY = 0 -- 0 = visible
+local ALWAYS_ON_TOP = true     -- shows through walls
+
+-- State
+local currentColor = DEFAULT_COLOR
+local connections = {}
+
+-- Utils
+local function getCharacter(player: Player)
+	return player.Character or player.CharacterAdded:Wait()
+end
+
+local function ensureHighlight(character: Model): Highlight
+	if not character then return nil end
+	local hl = character:FindFirstChild(HIGHLIGHT_NAME)
+	if not hl then
+		hl = Instance.new("Highlight")
+		hl.Name = HIGHLIGHT_NAME
+		hl.Adornee = character
+		hl.Parent = character
+	end
+	return hl
+end
+
+local function applyColorToHighlight(hl: Highlight)
+	if not hl then return end
+	hl.FillColor = currentColor
+	hl.OutlineColor = Color3.new(0,0,0)
+	hl.FillTransparency = FILL_TRANSPARENCY
+	hl.OutlineTransparency = OUTLINE_TRANSPARENCY
+	hl.DepthMode = ALWAYS_ON_TOP and Enum.HighlightDepthMode.AlwaysOnTop or Enum.HighlightDepthMode.Occluded
+end
+
+local function highlightCharacter(character: Model)
+	local hl = ensureHighlight(character)
+	applyColorToHighlight(hl)
+end
+
+local function onCharacterAdded(player: Player, character: Model)
+	-- Small delay to let rig load
+	task.defer(function()
+		highlightCharacter(character)
+		-- Re-apply if the root is re-built (some rigs swap parts)
+		local ancestryConn
+		ancestryConn = character.AncestryChanged:Connect(function(_, parent)
+			if not parent then
+				if ancestryConn then ancestryConn:Disconnect() end
+			end
+		end)
+	end)
+end
+
+local function hookPlayer(player: Player)
+	-- Character now
+	if player.Character then
+		highlightCharacter(player.Character)
+	end
+	-- Character later
+	local cConn = player.CharacterAdded:Connect(function(char)
+		onCharacterAdded(player, char)
+	end)
+	connections[player] = cConn
+end
+
+local function unhookPlayer(player: Player)
+	if connections[player] then
+		connections[player]:Disconnect()
+		connections[player] = nil
+	end
+end
+
+-- Apply to existing players
+for _, plr in ipairs(Players:GetPlayers()) do
+	hookPlayer(plr)
+end
+
+-- Apply to players joining/leaving
+Players.PlayerAdded:Connect(hookPlayer)
+Players.PlayerRemoving:Connect(unhookPlayer)
+
+---------------------------------------------------------------------
+-- GUI
+---------------------------------------------------------------------
+local function makeButton(parent, text, sizeUDim2, posUDim2)
+	local btn = Instance.new("TextButton")
+	btn.Size = sizeUDim2
+	btn.Position = posUDim2
+	btn.Text = text
+	btn.Font = Enum.Font.GothamBold
+	btn.TextScaled = true
+	btn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+	btn.TextColor3 = Color3.fromRGB(255,255,255)
+	btn.AutoButtonColor = true
+	btn.Parent = parent
+	local corner = Instance.new("UICorner", btn); corner.CornerRadius = UDim.new(0,8)
+	return btn
+end
+
+local function makeColorButton(parent, color: Color3, posUDim2)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(0, 28, 0, 28)
+	btn.Position = posUDim2
+	btn.Text = ""
+	btn.BackgroundColor3 = color
+	btn.BorderSizePixel = 1
+	btn.BorderColor3 = Color3.fromRGB(255,255,255)
+	btn.Parent = parent
+	local corner = Instance.new("UICorner", btn); corner.CornerRadius = UDim.new(1,0)
+	return btn
+end
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "PlayerHighlighterGUI"
+screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = true
+screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Toggle button (always visible) - bottom right
+local toggle = makeButton(screenGui, "Highlights", UDim2.new(0, 120, 0, 36), UDim2.new(1, -132, 1, -48))
+toggle.AnchorPoint = Vector2.new(0, 0) -- keep top-left anchor
+
+-- Panel - bottom right, above toggle
+local panel = Instance.new("Frame")
+panel.Name = "Panel"
+panel.Size = UDim2.new(0, 260, 0, 160)
+panel.Position = UDim2.new(1, -400, 1, -208) -- panel above toggle
+panel.AnchorPoint = Vector2.new(0, 0)
+panel.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+panel.Visible = true
+panel.Active = true
+panel.Draggable = true
+panel.Parent = screenGui
+Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 10)
+
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -12, 0, 28)
+title.Position = UDim2.new(0, 6, 0, 6)
+title.BackgroundTransparency = 1
+title.Font = Enum.Font.GothamBold
+title.TextScaled = true
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Text = "Player Highlighter"
+title.TextColor3 = Color3.fromRGB(255,255,255)
+title.Parent = panel
+
+local sub = Instance.new("TextLabel")
+sub.Size = UDim2.new(1, -12, 0, 22)
+sub.Position = UDim2.new(0, 6, 0, 36)
+sub.BackgroundTransparency = 1
+sub.Font = Enum.Font.Gotham
+sub.TextScaled = true
+sub.TextXAlignment = Enum.TextXAlignment.Left
+sub.Text = "Pick a color for all player outlines:"
+sub.TextColor3 = Color3.fromRGB(200,200,200)
+sub.Parent = panel
+
+-- Preset colors row
+local colorsRow = Instance.new("Frame")
+colorsRow.Size = UDim2.new(1, -12, 0, 32)
+colorsRow.Position = UDim2.new(0, 6, 0, 66)
+colorsRow.BackgroundTransparency = 1
+colorsRow.Parent = panel
+
+-- Color presets
+local presets = {
+	Color3.fromRGB(0, 170, 255),  -- cyan
+	Color3.fromRGB(255, 75, 75),  -- red
+	Color3.fromRGB(75, 255, 95),  -- green
+	Color3.fromRGB(255, 200, 0),  -- yellow
+	Color3.fromRGB(180, 100, 255),-- purple
+	Color3.fromRGB(255, 140, 0),  -- orange
+	Color3.fromRGB(255, 255, 255) -- white
+}
+
+for i, col in ipairs(presets) do
+	local btn = makeColorButton(colorsRow, col, UDim2.new(0, (i-1)*34, 0, 2))
+	btn.MouseButton1Click:Connect(function()
+		currentColor = col
+		-- Re-apply color to all current highlights
+		for _, plr in ipairs(Players:GetPlayers()) do
+			if plr.Character then
+				local hl = plr.Character:FindFirstChild(HIGHLIGHT_NAME)
+				if hl then
+					applyColorToHighlight(hl)
+				else
+					highlightCharacter(plr.Character)
+				end
+			end
+		end
+	end)
+end
+
+-- Custom RGB inputs
+local rgbRow = Instance.new("Frame")
+rgbRow.Size = UDim2.new(1, -12, 0, 32)
+rgbRow.Position = UDim2.new(0, 6, 0, 104)
+rgbRow.BackgroundTransparency = 1
+rgbRow.Parent = panel
+
+local function makeBox(xOffset, placeholder)
+	local box = Instance.new("TextBox")
+	box.Size = UDim2.new(0, 70, 0, 28)
+	box.Position = UDim2.new(0, xOffset, 0, 2)
+	box.Text = ""
+	box.PlaceholderText = placeholder
+	box.Font = Enum.Font.Gotham
+	box.TextScaled = true
+	box.BackgroundColor3 = Color3.fromRGB(35,35,35)
+	box.TextColor3 = Color3.fromRGB(255,255,255)
+	box.ClearTextOnFocus = false
+	box.Parent = rgbRow
+	Instance.new("UICorner", box).CornerRadius = UDim.new(0,8)
+	return box
+end
+
+local rBox = makeBox(0, "R 0-255")
+local gBox = makeBox(80, "G 0-255")
+local bBox = makeBox(160, "B 0-255")
+
+local applyBtn = makeButton(rgbRow, "Apply", UDim2.new(0, 70, 0, 28), UDim2.new(0, 240, 0, 2))
+
+applyBtn.MouseButton1Click:Connect(function()
+	local r = tonumber(rBox.Text) or 0
+	local g = tonumber(gBox.Text) or 0
+	local b = tonumber(bBox.Text) or 0
+	r = math.clamp(math.floor(r), 0, 255)
+	g = math.clamp(math.floor(g), 0, 255)
+	b = math.clamp(math.floor(b), 0, 255)
+	currentColor = Color3.fromRGB(r,g,b)
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr.Character then
+			local hl = plr.Character:FindFirstChild(HIGHLIGHT_NAME)
+			if hl then
+				applyColorToHighlight(hl)
+			else
+				highlightCharacter(plr.Character)
+			end
+		end
+	end
+end)
+
+-- Toggle panel visibility
+toggle.MouseButton1Click:Connect(function()
+	panel.Visible = not panel.Visible
+	toggle.BackgroundColor3 = panel.Visible and Color3.fromRGB(50, 120, 255) or Color3.fromRGB(60, 60, 60)
+end)
+
+---------------------------------------------------------------------
+-- Initial pass: highlight everyone now (including self)
+---------------------------------------------------------------------
+task.defer(function()
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr.Character then
+			highlightCharacter(plr.Character)
+		end
+	end
+end)
